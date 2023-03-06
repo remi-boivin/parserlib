@@ -1,0 +1,59 @@
+name: ctest
+
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
+on:
+  push:
+    branches: [ develop ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+    name: ctest
+    strategy:
+      matrix:
+        os: [
+          ubuntu-latest,
+          ]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+
+    - name: Checkout the repository
+      uses: actions/checkout@v3
+        # If your project use submodule, please uncomment the following line.
+        # with:
+        #   submodules: recursive
+
+    - name: Set up Clang
+      uses: egor-tensin/setup-clang@v1.4
+      with:
+        version: latest
+        platform: x64
+
+    - name: build tests
+      run: cmake -B ${{github.workspace}}/build -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Debug -DCMAKE_BUILD_TOOL=gcc
+
+    - name: run tests
+      working-directory: ${{github.workspace}}/build
+      run: |
+        make
+        ctest --output-on-failure --rerun-failed
+
+    - name: check if Build succeed
+      if: ${{ success() }}
+      uses: joelwmale/webhook-action@master
+      with:
+        url: ${{ github.secrets.DISCORD_WEBHOOK }}
+        body: '{"content": "job success", "embeds": [{"title": "github action", "description": "**Message**\nThe [job ${{ github.job }}](${{ github.repository }}/actions/runs/${{ github.job }}) succeded", "color": 9291330, "author": {"name": "${{ github.actor }}"}, "icon_url": "https://ennorath.org/wp-content/uploads/2020/03/mail.png"}]}'
+
+    - name: check if Build failed
+      if: ${{ failure() }}
+      uses: joelwmale/webhook-action@master
+      with:
+        url: ${{ github.secrets.DISCORD_WEBHOOK }}
+        body: '{"content": "job failled", "embeds": [{"title": "github action", "description": "**Message**\nThe [job ${{ github.job }}](${{ github.repository }}/actions/runs/${{ github.job }}) has failled", "color": 14177041, "author": {"name": "${{ github.actor }}"}, "icon_url": "https://ennorath.org/wp-content/uploads/2020/03/mail.png"}]}'

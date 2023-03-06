@@ -1,0 +1,79 @@
+on:
+  # schedule:
+  #   # * is a special character in YAML so you have to quote this string
+  #   # “At 04:00 on day-of-month 1 in every month from January through December.”
+  #   - cron:  '0 4 12 1-12 *'
+  push:
+    tags:
+      - "v*" # Push events to matching v*, i.e. v1.0, v20.15.10
+
+jobs:
+  deploy:
+    permissions: write-all
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get Current Job Log URL
+        uses: Tiryoh/gha-jobid-action@v0
+        id: jobs
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          job_name: ${{ github.job }}
+
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Build project # This would actually build your project, using zip for an example artifact
+        run: |
+          cmake -B ${{github.workspace}}/build -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_BUILD_TOOL=clang && cd ${{github.workspace}}/build/ && make && cd - && zip -r --junk-paths cpp-project-template README.md ${{github.workspace}}/build/src/cpp-project-template
+
+      # - name: Bump version and push tag
+      #   id: tag_version
+      #   uses: mathieudutour/github-tag-action@v6.1
+      #   with:
+      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # This token is provided by Actions, you do not need to create your own token
+
+      # - name: Extract version numbers
+      #   run: |
+      #     TAG_NAME=${{ steps.tag_version.outputs.new_tag }}
+      #     MAJOR_VERSION=$(echo $TAG_NAME | grep -o '[0-9]*\.[0-9]*' | grep -o '[0-9]*' | sed '1b;;d')
+      #     MINOR_VERSION=$(echo $TAG_NAME | grep -o '[0-9]*\.[0-9]*' | grep -o '[0-9]*' | sed '2b;;d')
+      #     PATCH_VERSION=$(echo $TAG_NAME | grep -o '[0-9]*\.[0-9]*' | grep -o '[0-9]*' | sed '3b;;d')
+      #     echo "MAJOR_VERSION=$MAJOR_VERSION" >> $GITHUB_ENV
+      #     echo "MINOR_VERSION=$MINOR_VERSION" >> $GITHUB_ENV
+      #     echo "PATCH_VERSION=$PATCH_VERSION" >> $GITHUB_ENV
+
+      - name: Create release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # This token is provided by Actions, you do not need to create your own token
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: Release ${{ github.ref_name }}
+          body: TODO # ${{ steps.tag_version.outputs.changelog }}
+          draft: false
+          prerelease: false
+
+      - name: Upload Release Asset
+        id: upload-release-asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps
+          asset_path: ./cpp-project-template.zip
+          asset_name: cpp-project-template.zip
+          asset_content_type: application/zip
+
+      - name: Send release message to Discord
+        uses: joelwmale/webhook-action@master
+        with:
+          url: ${{ github.secrets.DISCORD_WEBHOOK }}
+          body: '{"content": "New Release", "embeds": [{"title": "github action", "description": "**Message**\nThere is a new release available [cpp-project-template](${{ github.repository }}/releases/tag/${{ env.MAJOR_VERSION }}.${{ env.MINOR_VERSION }}.${{ env.PATCH_VERSION }})", "color": 9291330, "author": {"name": "${{ github.actor }}"}, "icon_url": "https://ennorath.org/wp-content/uploads/2020/03/mail.png"}]}'
+
+      - name: check if Build failed
+        if: ${{ failure() }}
+        uses: joelwmale/webhook-action@master
+        with:
+          url: ${{ github.secrets.DISCORD_WEBHOOK }}
+          body: '{"content": "job failled", "embeds": [{"title": "github action", "description": "**Message**\nThe [job ${{ github.job }}](${{ github.repository }}/actions/runs/${{ github.job }}) has failled", "color": 14177041, "author": {"name": "${{ github.actor }}"}, "icon_url": "https://ennorath.org/wp-content/uploads/2020/03/mail.png"}]}'
